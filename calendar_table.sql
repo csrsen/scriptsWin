@@ -1,6 +1,12 @@
+/*
+This is a T-SQL script for generating a calendar table.
+Shamelessly copied from Aaron Bertrand at
+https://www.mssqltips.com/sqlservertip/4054/creating-a-date-dimension-or-calendar-table-in-sql-server/
+*/
+
 DECLARE @StartDate DATE = '20000101', @NumberOfYears INT = 30;
 
--- prevent set or regional settings from interfering with 
+-- prevent set or regional settings from interfering with
 -- interpretation of dates / literals
 
 SET DATEFIRST 7;
@@ -13,7 +19,7 @@ DECLARE @CutoffDate DATE = DATEADD(YEAR, @NumberOfYears, @StartDate);
 
 CREATE TABLE #dim
 (
-  [date]       DATE PRIMARY KEY, 
+  [date]       DATE PRIMARY KEY,
   [day]        AS DATEPART(DAY,      [date]),
   [month]      AS DATEPART(MONTH,    [date]),
   FirstOfMonth AS CONVERT(DATE, DATEADD(MONTH, DATEDIFF(MONTH, 0, [date]), 0)),
@@ -30,14 +36,14 @@ CREATE TABLE #dim
 
 -- use the catalog views to generate as many rows as we need
 
-INSERT #dim([date]) 
+INSERT #dim([date])
 SELECT d
 FROM
 (
   SELECT d = DATEADD(DAY, rn - 1, @StartDate)
-  FROM 
+  FROM
   (
-    SELECT TOP (DATEDIFF(DAY, @StartDate, @CutoffDate)) 
+    SELECT TOP (DATEDIFF(DAY, @StartDate, @CutoffDate))
       rn = ROW_NUMBER() OVER (ORDER BY s1.[object_id])
     FROM sys.all_objects AS s1
     CROSS JOIN sys.all_objects AS s2
@@ -87,26 +93,26 @@ SELECT
   DateKey       = CONVERT(INT, Style112),
   [Date]        = [date],
   [Day]         = CONVERT(TINYINT, [day]),
-  DaySuffix     = CONVERT(CHAR(2), CASE WHEN [day] / 10 = 1 THEN 'th' ELSE 
-                  CASE RIGHT([day], 1) WHEN '1' THEN 'st' WHEN '2' THEN 'nd' 
+  DaySuffix     = CONVERT(CHAR(2), CASE WHEN [day] / 10 = 1 THEN 'th' ELSE
+                  CASE RIGHT([day], 1) WHEN '1' THEN 'st' WHEN '2' THEN 'nd'
 	              WHEN '3' THEN 'rd' ELSE 'th' END END),
   [Weekday]     = CONVERT(TINYINT, [DayOfWeek]),
   [WeekDayName] = CONVERT(VARCHAR(10), DATENAME(WEEKDAY, [date])),
   [IsWeekend]   = CONVERT(BIT, CASE WHEN [DayOfWeek] IN (1,7) THEN 1 ELSE 0 END),
   [IsHoliday]   = CONVERT(BIT, 0),
   HolidayText   = CONVERT(VARCHAR(64), NULL),
-  [DOWInMonth]  = CONVERT(TINYINT, ROW_NUMBER() OVER 
+  [DOWInMonth]  = CONVERT(TINYINT, ROW_NUMBER() OVER
                   (PARTITION BY FirstOfMonth, [DayOfWeek] ORDER BY [date])),
   [DayOfYear]   = CONVERT(SMALLINT, DATEPART(DAYOFYEAR, [date])),
-  WeekOfMonth   = CONVERT(TINYINT, DENSE_RANK() OVER 
+  WeekOfMonth   = CONVERT(TINYINT, DENSE_RANK() OVER
                   (PARTITION BY [year], [month] ORDER BY [week])),
   WeekOfYear    = CONVERT(TINYINT, [week]),
   ISOWeekOfYear = CONVERT(TINYINT, ISOWeek),
   [Month]       = CONVERT(TINYINT, [month]),
   [MonthName]   = CONVERT(VARCHAR(10), [MonthName]),
   [Quarter]     = CONVERT(TINYINT, [quarter]),
-  QuarterName   = CONVERT(VARCHAR(6), CASE [quarter] WHEN 1 THEN 'First' 
-                  WHEN 2 THEN 'Second' WHEN 3 THEN 'Third' WHEN 4 THEN 'Fourth' END), 
+  QuarterName   = CONVERT(VARCHAR(6), CASE [quarter] WHEN 1 THEN 'First'
+                  WHEN 2 THEN 'Second' WHEN 3 THEN 'Third' WHEN 4 THEN 'Fourth' END),
   [Year]        = [year],
   MMYYYY        = CONVERT(CHAR(6), LEFT(Style101, 2)    + LEFT(Style112, 4)),
   MonthYear     = CONVERT(CHAR(7), LEFT([MonthName], 3) + LEFT(Style112, 4)),
@@ -121,19 +127,19 @@ SELECT
 FROM #dim
 OPTION (MAXDOP 1);
 
-;WITH x AS 
+;WITH x AS
 (
   SELECT DateKey, [Date], IsHoliday, HolidayText, FirstDayOfYear,
     DOWInMonth, [MonthName], [WeekDayName], [Day],
-    LastDOWInMonth = ROW_NUMBER() OVER 
+    LastDOWInMonth = ROW_NUMBER() OVER
     (
-      PARTITION BY FirstDayOfMonth, [Weekday] 
+      PARTITION BY FirstDayOfMonth, [Weekday]
       ORDER BY [Date] DESC
     )
   FROM dbo.DateDimension
 )
 UPDATE x SET IsHoliday = 1, HolidayText = CASE
-  WHEN ([Date] = FirstDayOfYear) 
+  WHEN ([Date] = FirstDayOfYear)
     THEN 'New Year''s Day'
   WHEN ([DOWInMonth] = 3 AND [MonthName] = 'January' AND [WeekDayName] = 'Monday')
     THEN 'Martin Luther King Day'    -- (3rd Monday in January)
@@ -154,7 +160,7 @@ UPDATE x SET IsHoliday = 1, HolidayText = CASE
   WHEN ([MonthName] = 'December' AND [Day] = 25)
     THEN 'Christmas Day'
   END
-WHERE 
+WHERE
   ([Date] = FirstDayOfYear)
   OR ([DOWInMonth] = 3     AND [MonthName] = 'January'   AND [WeekDayName] = 'Monday')
   OR ([DOWInMonth] = 3     AND [MonthName] = 'February'  AND [WeekDayName] = 'Monday')
@@ -171,36 +177,36 @@ FROM dbo.DateDimension AS d
 INNER JOIN
 (
   SELECT DateKey, [Year], [DayOfYear]
-  FROM dbo.DateDimension 
+  FROM dbo.DateDimension
   WHERE HolidayText = 'Thanksgiving Day'
-) AS src 
-ON d.[Year] = src.[Year] 
+) AS src
+ON d.[Year] = src.[Year]
 AND d.[DayOfYear] = src.[DayOfYear] + 1;
 
 go
 
-CREATE FUNCTION dbo.GetEasterHolidays(@year INT) 
+CREATE FUNCTION dbo.GetEasterHolidays(@year INT)
 RETURNS TABLE
 WITH SCHEMABINDING
-AS 
-RETURN 
+AS
+RETURN
 (
-  WITH x AS 
+  WITH x AS
   (
-    SELECT [Date] = CONVERT(DATE, RTRIM(@year) + '0' + RTRIM([Month]) 
+    SELECT [Date] = CONVERT(DATE, RTRIM(@year) + '0' + RTRIM([Month])
         + RIGHT('0' + RTRIM([Day]),2))
       FROM (SELECT [Month], [Day] = DaysToSunday + 28 - (31 * ([Month] / 4))
       FROM (SELECT [Month] = 3 + (DaysToSunday + 40) / 44, DaysToSunday
       FROM (SELECT DaysToSunday = paschal - ((@year + @year / 4 + paschal - 13) % 7)
       FROM (SELECT paschal = epact - (epact / 28)
-      FROM (SELECT epact = (24 + 19 * (@year % 19)) % 30) 
+      FROM (SELECT epact = (24 + 19 * (@year % 19)) % 30)
         AS epact) AS paschal) AS dts) AS m) AS d
   )
   SELECT [Date], HolidayName = 'Easter Sunday' FROM x
     UNION ALL SELECT DATEADD(DAY,-2,[Date]), 'Good Friday'   FROM x
     UNION ALL SELECT DATEADD(DAY, 1,[Date]), 'Easter Monday' FROM x
 );
-;WITH x AS 
+;WITH x AS
 (
   SELECT d.[Date], d.IsHoliday, d.HolidayText, h.HolidayName
     FROM dbo.DateDimension AS d
